@@ -267,3 +267,39 @@ def test_training_suggests_offers_and_never_picks_or_replaces_yours():
     empty = merge_trained_config(learned, {"persona": {"company": "C", "email": "a@c.com"},
                                            "product": {"name": "P", "offer": {"entry": ""}}})
     assert empty["product"]["offer"]["entry"] == ""
+
+
+# Spanish email: the same rules, typed the way Spanish is written.
+
+@pytest.mark.parametrize("body,tell", [
+    ("Hola Ana,\n\nEspero que estés bien. Tu sitio no carga en el celular.", "espero que estés bien"),
+    ("Hola Ana,\n\nMe pongo en contacto por tu sitio.", "me pongo en contacto"),
+    ("Hola,\n\nTu marca puede llegar al siguiente nivel.", "siguiente nivel"),
+    ("Hola,\n\nTe lo mando sin compromiso.", "sin compromiso"),
+])
+def test_spanish_ai_phrases_are_refused(body, tell):
+    problems = style_problems("tu sitio", body)
+    assert any(tell in p for p in problems), problems
+
+
+def test_spanish_exclamation_marks_are_refused():
+    assert "has an exclamation mark" in style_problems("tu sitio", "Hola Ana,\n\n¡Qué buena tu pastelería.")
+
+
+@pytest.mark.parametrize("body", [
+    "Hola Ana,\n\nSoy Tomás y hago fotos de producto.",
+    "Ana:\n\nTe escribo por tu pastelería.",
+    "Buenas tardes,\n\nNuestro equipo hace fotos de producto.",
+])
+def test_spanish_self_openings_are_caught_after_the_greeting(body):
+    assert any('opens with "I" or "we"' in p for p in style_problems("tu sitio", body))
+
+
+def test_a_plain_spanish_email_passes():
+    body = ("Hola Ana,\n\nBusqué tu pastelería en Google y solo aparece tu Instagram. "
+            "¿Te mando gratis tres fotos de muestra?")
+    assert style_problems("tu pastelería en google", body) == []
+
+
+def test_spanish_sign_offs_are_replaced_by_the_name():
+    assert with_sign_off("Hola Ana,\n\nTe cuento.\n\nSaludos,", "Tomás Ejemplo").endswith("Te cuento.\n\nTomás")

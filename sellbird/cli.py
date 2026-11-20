@@ -440,6 +440,34 @@ def cmd_companies(args):
     print()
 
 
+def cmd_manual(args):
+    """Write the by-hand list (businesses Sellbird can't email) to a CSV."""
+    from datetime import date
+    from sellbird.config import load_config
+    from sellbird.manual_outreach import build_manual_list, to_csv
+    from sellbird.paths import PROJECT_ROOT
+    from sellbird.register import sqlite_query
+    from sellbird.state import DB_PATH
+
+    if not DB_PATH.exists():
+        print("\n  No database yet: run 'sellbird discover' or 'sellbird run' first.\n")
+        return
+    config = load_config()
+    rows = asyncio.run(build_manual_list(sqlite_query(DB_PATH), config))
+    out = Path(args.out) if args.out else (
+        PROJECT_ROOT / "data" / "exports" / f"manual-outreach-{date.today():%Y-%m-%d}.csv")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(to_csv(rows), encoding="utf-8-sig")
+    reachable = sum(1 for r in rows if r["phone"] or r["instagram"] or r["social"] or r["email"])
+    print(f"\n  By-hand list: {len(rows)} businesses → {out}")
+    print(f"    with a phone, social profile or email   {reachable}")
+    print(f"    with a WhatsApp link               {sum(1 for r in rows if r['whatsapp'])}")
+    print(f"    no website at all                  {sum(1 for r in rows if r['no_website'])}")
+    if rows and not config.manual_outreach.message:
+        print("  Tip: set manual_outreach.message in your config to get a ready-to-send message per row.")
+    print()
+
+
 def cmd_export(args):
     """Export the prospect list as a sequencer-ready CSV."""
     from sellbird.state import StateManager
@@ -1200,6 +1228,13 @@ def main():
     )
     sub.add_argument("--out", default="", help="Output file (default: data/exports/company-register-<date>.csv)")
     sub.set_defaults(func=cmd_companies)
+
+    # sellbird manual
+    sub = subparsers.add_parser(
+        "manual", help="Export businesses Sellbird can't email (phone, WhatsApp link, Instagram, message) to contact by hand"
+    )
+    sub.add_argument("--out", default="", help="Output file (default: data/exports/manual-outreach-<date>.csv)")
+    sub.set_defaults(func=cmd_manual)
 
     # sellbird gmail auth|test
     sub = subparsers.add_parser("gmail", help="Gmail provider setup")

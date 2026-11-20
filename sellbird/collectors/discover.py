@@ -118,6 +118,27 @@ JUNK_NAME_PATTERNS = tuple(re.compile(p, re.I) for p in (
 ))
 
 
+_SOCIAL_HOST_RE = re.compile(
+    r"(^|\.)(facebook|fb|instagram|tiktok|twitter|x|linktr|linkin|wa|whatsapp)\.(com|me|ee|bio)$",
+    re.IGNORECASE)
+
+
+def listing_site(url: str, domain: str = "") -> tuple[str, str, str]:
+    """(website, domain, social) for a business listing's "website" field.
+
+    Plenty of small businesses put their Instagram, Facebook page or link-in-bio
+    in that field. That isn't a website: kept as one, the listing's domain is
+    instagram.com and the business is thrown out as junk, though it is
+    exactly the business with no site of its own. So a social profile comes
+    back as ("", "", url), to be recorded as the business's social profile
+    with no website."""
+    url = (url or "").strip()
+    host = normalize_domain(domain or url)
+    if host and _SOCIAL_HOST_RE.search(host):
+        return "", "", url or f"https://{host}"
+    return url, host, ""
+
+
 def normalize_domain(url_or_domain: str) -> str:
     """A bare, lowercase, www-less hostname — the entity-resolution key.
 
@@ -372,6 +393,22 @@ class Business:
     source_url: str = ""
     provider: str = ""
     raw_title: str = ""             # SERP evidence for junk filtering before normalization
+    # Published contact points other than the website, from the listing
+    # itself (OSM's contact:instagram, email). Kept in the company's notes so
+    # a business with no website can still be reached by hand.
+    instagram: str = ""
+    email: str = ""
+    social: str = ""      # a non-Instagram profile used as the listing's website
+
+    def take_social(self, social: str) -> None:
+        """File a social-profile URL (see listing_site) under instagram, or
+        under social for any other network."""
+        if not social:
+            return
+        if "instagram." in social.lower():
+            self.instagram = self.instagram or social
+        else:
+            self.social = self.social or social
 
     def identity(self) -> str:
         return self.domain or self.external_id
@@ -567,8 +604,9 @@ class DataForSEOListings(DiscoveryProvider):
             "limit": min(query.limit, 1000),
             "order_by": ["rating.votes_count,desc"],
         }
-        if query.category:
-            payload["categories"] = [query.category]
+        categories = [c.strip() for c in query.category.split(",") if c.strip()]
+        if categories:
+            payload["categories"] = categories
         else:
             payload["title"] = query.term
         if query.coordinate:
@@ -590,13 +628,13 @@ class DataForSEOListings(DiscoveryProvider):
         return [self._to_business(item) for item in _dfs_items(data)]
 
     def _to_business(self, item: dict) -> Business:
-        url = item.get("url") or ""
+        url, domain, social = listing_site(item.get("url") or "", item.get("domain") or "")
         rating = (item.get("rating") or {})
         addr = item.get("address_info") or {}
         city = ", ".join(x for x in (addr.get("city"), addr.get("region")) if x)
-        return Business(
+        biz = Business(
             name=item.get("title") or "",
-            domain=normalize_domain(item.get("domain") or url),
+            domain=domain,
             website=url,
             phone=item.get("phone") or "",
             address=item.get("address") or "",
@@ -611,6 +649,8 @@ class DataForSEOListings(DiscoveryProvider):
             source_url=item.get("check_url") or "",
             provider=self.key,
         )
+        biz.take_social(social)
+        return biz
 
 
 class DataForSEOSerp(DiscoveryProvider):
@@ -758,14 +798,13 @@ class DataForSEOMaps(DataForSEOSerp):
             # maps_paid_item is an ad; only organic map results have a rank.
             if item.get("type") != "maps_search":
                 continue
-            url = item.get("url") or ""
-            domain = normalize_domain(item.get("domain") or url)
+            url, domain, social = listing_site(item.get("url") or "", item.get("domain") or "")
             external, alt_ids = _gbp_ids(item)
             if not (domain or external):
                 continue
             rating = item.get("rating") or {}
             addr = item.get("address_info") or {}
-            out.append(Business(
+            biz = Business(
                 name=item.get("title") or "", raw_title=item.get("title") or "",
                 domain=domain, website=url, phone=item.get("phone") or "",
                 address=item.get("address") or "",
@@ -776,9 +815,11 @@ class DataForSEOMaps(DataForSEOSerp):
                 is_claimed=item.get("is_claimed"),
                 has_website=bool(url or domain),
                 maps_rank=item.get("rank_group"),
-                external_id=external, alt_ids=alt_ids, source_url=url,
+                external_id=external, alt_ids=alt_ids, source_url=url or social,
                 provider=self.key, keyword=keyword,
-            ))
+            )
+            biz.take_social(social)
+            out.append(biz)
         return out
 
 
@@ -1115,6 +1156,38 @@ class OpenStreetMap(DiscoveryProvider):
         "panader": ['shop=bakery'],
         "clinica": ['amenity=clinic'],
         "clínica": ['amenity=clinic'],
+        # Small businesses that sell from a storefront or a booking: the
+        # trades a local web designer in Chile or elsewhere writes to.
+        "pasteler": ['shop=pastry', 'shop=confectionery'],
+        "reposter": ['shop=pastry', 'shop=confectionery'],
+        "cafeter": ['amenity=cafe'],
+        "peluquer": ['shop=hairdresser'],
+        "barber": ['shop=hairdresser'],
+        "estetic": ['shop=beauty'],
+        "estétic": ['shop=beauty'],
+        "manicur": ['shop=beauty'],
+        "florer": ['shop=florist'],
+        "veterinar": ['amenity=veterinary'],
+        "gasfiter": ['craft=plumber'],
+        "gasfíter": ['craft=plumber'],
+        "climatiz": ['craft=hvac'],
+        "boutique": ['shop=boutique', 'shop=clothes'],
+        "restaurant": ['amenity=restaurant'],
+        "heladeri": ['amenity=ice_cream'],
+        "heladerí": ['amenity=ice_cream'],
+        "librer": ['shop=books'],
+        "libreri": ['shop=books'],
+        "optica": ['shop=optician'],
+        "óptica": ['shop=optician'],
+        "fotograf": ['craft=photographer', 'shop=photo'],
+        "fotógraf": ['craft=photographer', 'shop=photo'],
+        "gimnasio": ['leisure=fitness_centre'],
+        "abogad": ['office=lawyer'],
+        "arquitect": ['office=architect'],
+        "inmobiliari": ['office=estate_agent'],
+        "carpinter": ['craft=carpenter'],
+        "mascota": ['shop=pet'],
+        "decoraci": ['shop=interior_decoration'],
     }
 
     def _tags(self, term: str) -> list[str]:
@@ -1203,6 +1276,8 @@ class OpenStreetMap(DiscoveryProvider):
                 location=city or query.location,
                 category=tags.get("craft") or tags.get("shop") or tags.get("office") or "",
                 has_website=bool(site),
+                instagram=tags.get("contact:instagram") or tags.get("instagram") or "",
+                email=tags.get("email") or tags.get("contact:email") or "",
                 external_id=f"osm:{el.get('type')}/{el.get('id')}",
                 source_url=f"https://www.openstreetmap.org/{el.get('type')}/{el.get('id')}",
                 provider=self.key,
@@ -1382,11 +1457,11 @@ class ScavioMaps(ScavioProvider):
             name = item.get("title") or ""
             if not name:
                 continue
-            site = item.get("website") or ""
+            site, domain, social = listing_site(item.get("website") or "")
             place_id = item.get("place_id") or ""
-            out.append(Business(
+            biz = Business(
                 name=name,
-                domain=normalize_domain(site),
+                domain=domain,
                 website=site,
                 phone=item.get("phone") or "",
                 address=item.get("address") or "",
@@ -1401,7 +1476,9 @@ class ScavioMaps(ScavioProvider):
                 source_url=(f"https://www.google.com/maps/place/?q=place_id:{place_id}"
                             if place_id else site),
                 provider=self.key,
-            ))
+            )
+            biz.take_social(social)
+            out.append(biz)
         return out
 
 
@@ -1664,6 +1741,7 @@ def build_queries(config, cities: list[str] | None = None,
     icp = config.icp
     terms = list(icp.industries) or [config.product.name]
     spec = PRESETS.get(preset) if preset else None
+    category_of: dict[str, list[str]] = {}
     if spec:
         templates = preset_templates(spec)
         since = (date.today() - timedelta(days=FUNDING_LOOKBACK_DAYS)).isoformat()
@@ -1677,6 +1755,12 @@ def build_queries(config, cities: list[str] | None = None,
         # configured variant is another search in every city — ranks differ
         # by phrasing, and the email should quote the phrase that was used.
         variants = getattr(icp, "keyword_variants", {}) or {}
+        # A variant searches for the same businesses, so it shares its
+        # industry's listing categories.
+        category_of = dict(getattr(icp, "listing_categories", {}) or {})
+        for t in terms:
+            for v in variants.get(t, []):
+                category_of.setdefault(v.strip(), category_of.get(t, []))
         terms = list(dict.fromkeys(
             v.strip() for t in terms for v in [t, *variants.get(t, [])] if v.strip()))
         places = cities if cities is not None else list(icp.geography) or [""]
@@ -1684,7 +1768,8 @@ def build_queries(config, cities: list[str] | None = None,
 
     return [
         DiscoveryQuery(term=term, location=place, depth=depth, limit=limit,
-                       coordinate=coords.get(place, ""), preset=preset if spec else "")
+                       coordinate=coords.get(place, ""), preset=preset if spec else "",
+                       category=",".join(c.strip() for c in category_of.get(term, []) if c.strip()))
         for term in terms
         for place in places
     ]
@@ -1926,8 +2011,22 @@ async def _upsert(state, biz: Business, query: DiscoveryQuery) -> tuple[str, boo
         source=f"discover:{biz.provider}",
         source_url=biz.source_url,
         external_id=biz.external_id,
+        notes=listing_contact_notes(biz),
     )
     return await state.add_company(company), True
+
+
+def listing_contact_notes(biz: Business) -> str:
+    """The listing's own contact points beyond the website, one per line
+    ("Instagram: ...", "Email: ..."), or "". manual_outreach reads them back."""
+    lines = []
+    if biz.instagram.strip():
+        lines.append(f"Instagram: {biz.instagram.strip()}")
+    if biz.social.strip():
+        lines.append(f"Social: {biz.social.strip()}")
+    if biz.email.strip():
+        lines.append(f"Email: {biz.email.strip()}")
+    return "\n".join(lines)
 
 
 RANK_FIELDS = ("rank", "local_pack_rank", "maps_rank")

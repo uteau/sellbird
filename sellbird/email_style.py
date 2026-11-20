@@ -76,6 +76,15 @@ AI_TELLS = (
     # staged contrasts
     "it's not about", "it is not about", "isn't about", "this isn't just",
     "it's not just", "it isn't just", "not just a",
+    # Spanish: the same tells, as they're typed in Spanish email
+    "espero que estés bien", "espero que estes bien", "espero que esté bien",
+    "espero que este bien", "espero que te encuentres bien",
+    "espero que se encuentre bien", "me pongo en contacto", "me comunico contigo",
+    "solo quería", "solo queria", "sólo quería", "quería contactarte",
+    "queria contactarte", "no dudes en", "siguiente nivel", "potenciar tu",
+    "potencia tu", "impulsar tu", "impulsa tu", "soluciones integrales",
+    "sin compromiso", "revolucionar", "sinergia", "pregunta rápida",
+    "pregunta rapida", "hago seguimiento", "te hago seguimiento",
 )
 _TELL_RES = tuple(
     (phrase, re.compile(r"(?<![\w-])" + re.escape(phrase).replace("'", "['’]") + r"(?![\w-])"))
@@ -83,9 +92,14 @@ _TELL_RES = tuple(
 )
 _NOT_ONLY_BUT_RE = re.compile(r"\bnot (?:only|just|merely) [^.?!\n]{1,60}?\bbut\b", re.IGNORECASE)
 
-_GREETING_RE = re.compile(r"^(?:hi|hey|hello|dear|good (?:morning|afternoon))\b[^\n]{0,40}$|^\w[\w .'-]{0,30},$",
-                          re.IGNORECASE)
-_SELF_OPENING_RE = re.compile(r"^(?:i|we|i'm|we're|i've|we've|i'd|we'd|my|our)\b", re.IGNORECASE)
+_GREETING_RE = re.compile(
+    r"^(?:hi|hey|hello|dear|good (?:morning|afternoon)"
+    r"|hola|buen(?:os|as) (?:d[ií]as|tardes|noches)|buenas|estimad[oa]s?)\b[^\n]{0,40}$"
+    r"|^\w[\w .'-]{0,30}[,:]$",
+    re.IGNORECASE)
+_SELF_OPENING_RE = re.compile(
+    r"^(?:i|we|i'm|we're|i've|we've|i'd|we'd|my|our"
+    r"|yo|soy|somos|me llamo|mi|mis|nuestr[oa]s?|te escribo|les escribo)\b", re.IGNORECASE)
 
 _TIDY = str.maketrans({
     "‘": "'", "’": "'", "‚": "'", "‛": "'", "′": "'",
@@ -151,7 +165,7 @@ def style_problems(subject: str, body: str, *, kind: str = "cold", step: int = 1
     dashes = sorted({c for c in text if c in _DASH_CHARS})
     if dashes or _SPACED_HYPHEN_RE.search(text):
         reasons.append("uses a dash between words; use a period or a comma instead")
-    if "!" in text:
+    if "!" in text or "¡" in text:
         reasons.append("has an exclamation mark")
     if _LIST_LINE_RE.search(body) or _MARKDOWN_RE.search(text):
         reasons.append("has formatting (a list, bold or a heading); write plain sentences")
@@ -181,7 +195,9 @@ def style_problems(subject: str, body: str, *, kind: str = "cold", step: int = 1
 
 _SIGN_OFF_RE = re.compile(
     r"^(?:best|best wishes|thanks|thank you|thanks again|many thanks|cheers|regards|best regards|"
-    r"kind regards|warm regards|warmly|talk soon|speak soon|all the best|sincerely|take care)[,.]?$",
+    r"kind regards|warm regards|warmly|talk soon|speak soon|all the best|sincerely|take care|"
+    r"saludos|un saludo|saludos cordiales|atentamente|atte|cari[ñn]os|un abrazo|abrazo|"
+    r"gracias|muchas gracias)[,.]?$",
     re.IGNORECASE)
 
 

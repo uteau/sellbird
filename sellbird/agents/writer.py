@@ -527,8 +527,8 @@ class Writer:
             ]
             inbox_rule = (
                 "\n- This goes to the company's general inbox, most likely read by the owner"
-                "\n  or the office manager. Use no first name; open with 'Hi there' or"
-                "\n  address the company's team.")
+                "\n  or the office manager. Use no first name; open with 'Hi there' (or the"
+                "\n  same plain greeting in the email's language) or address the company's team.")
         else:
             facts = [
                 f"- Name: {prospect.full_name()}",
@@ -636,7 +636,8 @@ Return ONLY JSON: {{"subject": "...", "body": "..."}}"""
             merge_rule = (
                 "- These go to each company's general inbox, so no names are known.\n"
                 "  Use {{company}} as the merge variable in every email and NEVER\n"
-                "  {{first_name}} or {{title}}. Greet with 'Hi there' or the company's team."
+                "  {{first_name}} or {{title}}. Greet with 'Hi there' (or the same plain\n"
+                "  greeting in the email's language) or the company's team."
             )
         else:
             merge_rule = (

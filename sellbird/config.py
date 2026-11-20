@@ -84,6 +84,12 @@ class ICPConfig(BaseModel):
     # Each variant runs in every city alongside the industry itself, so the
     # estimate grows with it. Empty → each industry is its own one search.
     keyword_variants: dict[str, list[str]] = {}
+    # Google Business Profile categories per industry, for the business
+    # listings provider, e.g.
+    #   "gasfitería": ["plumber"]
+    # Without one, that provider can only match the word in a business's
+    # NAME, which misses most of them. Other providers ignore it.
+    listing_categories: dict[str, list[str]] = {}
 
 
 class WarmupConfig(BaseModel):
@@ -830,6 +836,17 @@ class HandoffConfig(BaseModel):
     arguments: dict = {}
 
 
+class ManualOutreachConfig(BaseModel):
+    """The by-hand list (`sellbird manual`): businesses Sellbird can't email,
+    with their phone, WhatsApp link and Instagram, and a message to send.
+
+    ``message`` may use {negocio} / {company}, {comuna} / {area} and
+    {rubro} / {sector}. ``country_code`` turns a local phone number into a
+    WhatsApp link (e.g. "56" for Chile); blank leaves numbers as written."""
+    country_code: str = ""
+    message: str = ""
+
+
 class SellbirdConfig(BaseModel):
     persona: PersonaConfig
     product: ProductConfig
@@ -840,6 +857,7 @@ class SellbirdConfig(BaseModel):
     compliance: ComplianceConfig = ComplianceConfig()
     writer: WriterConfig = WriterConfig()
     handoff: HandoffConfig = HandoffConfig()
+    manual_outreach: ManualOutreachConfig = ManualOutreachConfig()
     # The file it was loaded from, so a running Sellbird can re-read the
     # sending mode from that same file (refresh_sending_mode).
     _source_path: str | None = PrivateAttr(default=None)

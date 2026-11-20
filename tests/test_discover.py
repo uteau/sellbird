@@ -1743,3 +1743,69 @@ async def test_osm_maps_spanish_business_terms():
     assert provider._tags("comercio al mayor") == ["shop=wholesale"]
     assert provider._tags("mayorista") == ["shop=wholesale"]
     assert provider._tags("mayor's office") == []
+
+
+# ── Listings for businesses whose "website" is a social profile ──
+
+
+@pytest.mark.parametrize("url,expect", [
+    ("https://www.instagram.com/dulce.example/", ("", "", "https://www.instagram.com/dulce.example/")),
+    ("https://m.facebook.com/dulce.example", ("", "", "https://m.facebook.com/dulce.example")),
+    ("https://linktr.ee/dulce", ("", "", "https://linktr.ee/dulce")),
+    ("https://wa.me/56900000000", ("", "", "https://wa.me/56900000000")),
+    ("https://dulce.example/", ("https://dulce.example/", "dulce.example", "")),
+    ("https://instagramtips.example/", ("https://instagramtips.example/", "instagramtips.example", "")),
+    ("", ("", "", "")),
+])
+def test_listing_site_tells_a_social_profile_from_a_website(url, expect):
+    assert D.listing_site(url) == expect
+
+
+@pytest.mark.asyncio
+async def test_a_listing_whose_website_is_instagram_is_kept_as_no_website():
+    """Many small businesses put their Instagram in the listing's website
+    field. As a website it would be thrown out as junk (instagram.com), though
+    it is the best prospect there is for someone selling websites."""
+    item = {"title": "Dulce Ejemplo", "url": "https://www.instagram.com/dulce.example/",
+            "domain": "www.instagram.com", "place_id": "ChIJsocial1", "phone": "+56900000000"}
+    payload = {"status_code": 20000, "cost": 0.01,
+               "tasks": [{"status_code": 20000, "result": [{"items": [item]}]}]}
+    provider = D.DataForSEOListings()
+    async with _client(lambda r: httpx.Response(200, json=payload)) as client:
+        (biz,) = await provider.fetch(client, {"dataforseo_login": "u", "dataforseo_password": "p"},
+                                      D.DiscoveryQuery(term="pastelería", coordinate="-33.0,-71.5,5"))
+    assert biz.domain == "" and biz.website == "" and biz.has_website is False
+    assert biz.instagram == "https://www.instagram.com/dulce.example/"
+    assert not D.is_junk(biz.domain, biz.name)
+    assert "Instagram: https://www.instagram.com/dulce.example/" in D.listing_contact_notes(biz)
+
+
+@pytest.mark.asyncio
+async def test_listing_categories_search_by_category_not_by_name():
+    config = SimpleNamespace(
+        product=SimpleNamespace(name="x"),
+        icp=SimpleNamespace(industries=["gasfitería", "florería"], geography=["Ciudad Ejemplo"],
+                            geo_coordinates={"Ciudad Ejemplo": "-33.0,-71.5,5"},
+                            keyword_variants={"gasfitería": ["gasfíter"]},
+                            listing_categories={"gasfitería": ["plumber"]}))
+    queries = {q.term: q for q in D.build_queries(config)}
+    assert queries["gasfitería"].category == "plumber"
+    assert queries["gasfíter"].category == "plumber"     # a variant shares it
+    assert queries["florería"].category == ""
+
+    seen = []
+
+    def handler(request):
+        seen.append(json.loads(request.content)[0])
+        return httpx.Response(200, json={"status_code": 20000, "tasks": [
+            {"status_code": 20000, "result": [{"items": []}]}]})
+
+    provider = D.DataForSEOListings()
+    env = {"dataforseo_login": "u", "dataforseo_password": "p"}
+    async with _client(handler) as client:
+        await provider.fetch(client, env, D.DiscoveryQuery(
+            term="climatización", category="hvac_contractor, air_conditioning_contractor"))
+        await provider.fetch(client, env, D.DiscoveryQuery(term="florería"))
+    assert seen[0]["categories"] == ["hvac_contractor", "air_conditioning_contractor"]
+    assert "title" not in seen[0]
+    assert seen[1]["title"] == "florería" and "categories" not in seen[1]
